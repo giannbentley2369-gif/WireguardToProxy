@@ -38,7 +38,9 @@ def test_listen_host_is_parsed_and_normalized(raw, listen, connect):
     assert cfg.connect_host == connect
 
 
-@pytest.mark.parametrize("raw", ["localhost", "vps.example.com", "1.2.3", "256.1.1.1", "0.0.0.0:8080", "[::1]", "fe80::1%eth0"])
+@pytest.mark.parametrize(
+    "raw", ["localhost", "vps.example.com", "1.2.3", "256.1.1.1", "0.0.0.0:8080", "[::1]", "fe80::1%eth0"]
+)
 def test_listen_host_must_be_an_ip_address(raw):
     with pytest.raises(ConfigError, match="WGPROXY_LISTEN_HOST must"):
         config(WGPROXY_LISTEN_HOST=raw)
@@ -70,9 +72,22 @@ def test_public_host_is_parsed(raw, expected):
 
 
 @pytest.mark.parametrize(
-    "raw", ["0.0.0.0", "::", "[::]", "http://203.0.113.10", "203.0.113.10:8080", "bad host", "a/b", "fe80::1%eth0"]
+    "raw",
+    [
+        "0.0.0.0",
+        "::",
+        "[::]",
+        "http://203.0.113.10",
+        "203.0.113.10:8080",
+        "bad host",
+        "a/b",
+        "fe80::1%eth0",
+        "256.1.1.1",
+        "194.36.188.1788",
+        "1.2.3",
+    ],
 )
-def test_public_host_rejects_wildcards_urls_and_ports(raw):
+def test_public_host_rejects_wildcards_urls_ports_and_mistyped_ips(raw):
     with pytest.raises(ConfigError, match="WGPROXY_PUBLIC_HOST must"):
         config(WGPROXY_PUBLIC_HOST=raw)
 

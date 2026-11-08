@@ -140,7 +140,8 @@ def test_csrf_checks_apply_to_logged_in_sessions(env_client):
     assert login(env_client).status_code == 200
     # Cross-site pages cannot add the custom header (no CORS preflight is ever granted) ...
     assert env_client.post("/api/engine/restart", headers={"X-Requested-With": ""}).status_code == 403
-    assert env_client.put("/api/settings", json={"test_concurrency": 5}, headers={"X-Requested-With": ""}).status_code == 403
+    response = env_client.put("/api/settings", json={"test_concurrency": 5}, headers={"X-Requested-With": ""})
+    assert response.status_code == 403
     assert env_client.post("/api/auth/logout", headers={"X-Requested-With": ""}).status_code == 403
     # ... and a foreign Origin is refused even with it.
     assert env_client.post("/api/engine/restart", headers={"Origin": "http://evil.example"}).status_code == 403
@@ -166,7 +167,9 @@ def test_failed_logins_are_limited_per_client(env_client):
     # HTTP Basic auth shares the limit, so it cannot be used to keep guessing.
     assert env_client.get("/api/status", headers=basic(USER, PASSWORD)).status_code == 429
     # Other client addresses are not affected.
-    other = TestClient(env_client.app, base_url="http://127.0.0.1:18080", headers=HEADERS, client=("198.51.100.7", 40000))
+    other = TestClient(
+        env_client.app, base_url="http://127.0.0.1:18080", headers=HEADERS, client=("198.51.100.7", 40000)
+    )
     assert login(other).status_code == 200
 
 
@@ -193,6 +196,20 @@ async def test_concurrent_guesses_cannot_overshoot_the_limit(tmp_path: Path):
         db.close()
     assert sum(result is False for result in results) == 5
     assert sum(isinstance(result, LoginThrottled) for result in results) == 15
+
+
+async def test_slow_down_only_delays_failed_attempts(tmp_path: Path):
+    db = Database(tmp_path / "wgproxy.db")
+    try:
+        auth = Auth(SettingsStore(db), b"k" * 32, username=USER, env_password=PASSWORD)
+        auth.failure_delay = lambda: 30.0  # as if many logins had just failed elsewhere
+        # A correct login (form or HTTP Basic auth) answers at once ...
+        assert await asyncio.wait_for(auth.login("203.0.113.5", USER, PASSWORD), timeout=5) is True
+        # ... while a wrong one is held back.
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(auth.login("203.0.113.6", USER, "wrong"), timeout=2)
+    finally:
+        db.close()
 
 
 class FakeClock:

@@ -47,7 +47,8 @@ def parse_public_host(value: str) -> str:
         value = value[1:-1]
     if not value:
         return ""
-    if is_hostname(value):
+    # A numeric last label is a mistyped IP address (e.g. 256.1.1.1), not a usable host name.
+    if is_hostname(value) and not value.rsplit(".", 1)[-1].isdigit():
         return value.lower()
     try:
         address = ipaddress.ip_address(value)

@@ -92,8 +92,9 @@ WGPROXY_WEBUI_USERNAME=admin
 WGPROXY_WEBUI_PASSWORD='a long random passphrase'
 ```
 
-Run `docker compose up -d` and open `http://203.0.113.10:8080`. Without an outer VPN client on the
-server, clear **Settings → Upstream proxy → Host** (direct mode).
+Run `docker compose up -d --build` and open `http://203.0.113.10:8080`: it must ask for the login.
+Without `--build`, an image built from older code keeps running and ignores these settings. Without an
+outer VPN client on the server, clear **Settings → Upstream proxy → Host** (direct mode).
 
 - **The WebUI speaks plain HTTP**: the login and the session cookie cross the network unencrypted. When you
   can, keep `WGPROXY_LISTEN_HOST=127.0.0.1` and use an SSH tunnel
@@ -106,6 +107,7 @@ server, clear **Settings → Upstream proxy → Host** (direct mode).
 - Exports never contain `0.0.0.0` or `::`. Without `WGPROXY_PUBLIC_HOST` (or **Settings → Export**), they
   use the listen address if it is a specific IP, otherwise the address you opened the WebUI with.
 - After 5 failed logins within a minute, a client address is refused (HTTP 429) until the minute is over.
+  Behind a reverse proxy, all clients share the proxy's address, so the limit applies to them together.
 
 ## Architecture
 
@@ -350,7 +352,8 @@ To back up, copy `./data` while the container is stopped, or download every impo
   user names and hashes are compared in constant time. Sessions use an HMAC-signed, HttpOnly,
   SameSite=Strict cookie; changing the password or user name signs every session out. Scripts can use
   HTTP Basic auth with the same login. Failed logins, through the form or Basic auth, are limited to 5 per
-  minute per client address (per /64 for IPv6), with an additional global slow-down.
+  minute per client address (per /64 for IPv6). While many logins fail, failed attempts also answer more
+  slowly; correct logins are never delayed.
 - **Proxies**: they require the proxy credentials, but anyone who can reach a proxy port and knows them
   can use the proxies, from the internet too when `WGPROXY_LISTEN_HOST` is `0.0.0.0`. Treat `./data` as a
   secret.

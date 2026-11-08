@@ -254,20 +254,22 @@ class Auth:
         token = self.limiter.acquire(key)
         if token is None:
             raise LoginThrottled(self.limiter.retry_after(key))
-        delay = self.failure_delay()
-        if delay:
-            await asyncio.sleep(delay)
         if await asyncio.to_thread(self.check_credentials, username, password):
             self.limiter.release(key, token)
             return True
+        delay = self.failure_delay()
         self.record_failure()
+        if delay:
+            # Only failures wait, so failures from others (e.g. bots on a public port) never
+            # slow down a correct login or an authenticated script.
+            await asyncio.sleep(delay)
         return False
 
     def record_failure(self) -> None:
         self._failures.append(time.monotonic())
 
     def failure_delay(self) -> float:
-        """Slow down distributed guessing: grows with recent failures from anywhere, capped at 10 s."""
+        """Extra wait for a failed attempt: grows with recent failures from anywhere, capped at 10 s."""
         cutoff = time.monotonic() - 300
         recent = sum(1 for moment in self._failures if moment > cutoff)
         return 0.0 if recent < 3 else min(10.0, 0.5 * (recent - 2))

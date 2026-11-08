@@ -155,7 +155,7 @@ def test_settings_validation(client: TestClient):
     assert client.put("/api/settings", json={"bootstrap_dns": "dns.google"}).status_code == 422
     assert client.put("/api/settings", json={"proxy_username": "a:b"}).status_code == 422
     assert client.put("/api/settings", json={"no_such_setting": 1}).status_code == 422
-    for bad_host in ("0.0.0.0", "::", "http://203.0.113.10", "203.0.113.10:8080"):
+    for bad_host in ("0.0.0.0", "::", "http://203.0.113.10", "203.0.113.10:8080", "256.1.1.1"):
         assert client.put("/api/settings", json={"public_host": bad_host}).status_code == 422, bad_host
     response = client.put("/api/settings", json={"upstream_host": "", "test_concurrency": 10})
     assert response.status_code == 200
