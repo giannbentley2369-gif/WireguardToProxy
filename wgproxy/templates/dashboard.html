@@ -13,7 +13,7 @@
     <button type="button" class="btn tiny" data-copy="pass">Copy</button>
   </div>
   <div class="cred-item grow muted">
-    Each proxy accepts SOCKS5 and HTTP on the same port, e.g. <code id="cred-example">socks5://USER:PASS@127.0.0.1:PORT</code>
+    Each proxy accepts SOCKS5 and HTTP on the same port, e.g. <code id="cred-example">socks5://USER:PASS@{{ export_host }}:PORT</code>
   </div>
 </section>
 
@@ -78,8 +78,8 @@
     <h2>Export proxies.txt</h2>
     <fieldset class="inline">
       <legend>Format</legend>
-      <label><input type="radio" name="scheme" value="socks5" checked> socks5://USER:PASS@127.0.0.1:PORT</label>
-      <label><input type="radio" name="scheme" value="http"> http://USER:PASS@127.0.0.1:PORT</label>
+      <label><input type="radio" name="scheme" value="socks5" checked> socks5://USER:PASS@{{ export_host }}:PORT</label>
+      <label><input type="radio" name="scheme" value="http"> http://USER:PASS@{{ export_host }}:PORT</label>
     </fieldset>
     <label class="check"><input type="checkbox" name="enabled_only" checked> Enabled proxies only</label>
     <label class="check"><input type="checkbox" name="status_ok"> Only proxies whose last test succeeded</label>

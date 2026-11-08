@@ -10,3 +10,4 @@ tests
 .ruff_cache
 *.egg-info
 docker-compose.yml
+.env

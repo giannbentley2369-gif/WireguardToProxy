@@ -3,7 +3,7 @@
 Supports ``version``, ``check -c FILE`` and ``run -c FILE``:
 
 * ``check`` fails when an endpoint tag listed in FAKE_SINGBOX_REJECT_TAGS is present;
-* ``run`` binds every inbound port on 127.0.0.1, records its state in ``FILE.state.json`` and
+* ``run`` binds every inbound port on its ``listen`` address, records its state in ``FILE.state.json`` and
   exits cleanly on SIGTERM. FAKE_SINGBOX_BUSY_PORTS simulates "address already in use" and
   FAKE_SINGBOX_FATAL_TAGS a fatal start error of an endpoint (both comma-separated).
 """
@@ -53,17 +53,18 @@ def run(path: str) -> int:
     busy = {int(port) for port in _env_set("FAKE_SINGBOX_BUSY_PORTS")}
     listeners = []
     for inbound in config.get("inbounds", []):
-        port, tag = inbound["listen_port"], inbound["tag"]
+        port, tag, host = inbound["listen_port"], inbound["tag"], inbound["listen"]
+        shown_host = f"[{host}]" if ":" in host else host
         message = (
             f"FATAL[0000] start service: start inbound: start inbound/mixed[{tag}]: "
-            f"listen tcp 127.0.0.1:{port}: bind: address already in use"
+            f"listen tcp {shown_host}:{port}: bind: address already in use"
         )
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             if port in busy:
                 raise OSError("simulated")
-            sock.bind((inbound["listen"], port))
+            sock.bind((host, port))
             sock.listen(16)
         except OSError:
             print(message, flush=True)
@@ -75,6 +76,7 @@ def run(path: str) -> int:
         "pid": os.getpid(),
         "started": time.time(),
         "ports": [inbound["listen_port"] for inbound in config.get("inbounds", [])],
+        "listen": [inbound["listen"] for inbound in config.get("inbounds", [])],
         "tags": [endpoint["tag"] for endpoint in config.get("endpoints", [])],
         "detours": [endpoint.get("detour") for endpoint in config.get("endpoints", [])],
         "gomemlimit": os.environ.get("GOMEMLIMIT"),

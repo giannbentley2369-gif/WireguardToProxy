@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
+from .hosts import url_host
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -21,7 +22,15 @@ def _render(request: Request, template: str, page: str, title: str, **context: A
     return templates.TemplateResponse(
         request,
         template,
-        {"page": page, "title": title, "version": __version__, "auth_enabled": services.auth.enabled(), **context},
+        {
+            "page": page,
+            "title": title,
+            "version": __version__,
+            "auth_enabled": services.auth.enabled(),
+            "listen_host": services.cfg.listen_host,
+            "export_host": url_host(services.export_host(request.headers.get("host", ""))),
+            **context,
+        },
     )
 
 
@@ -50,4 +59,5 @@ async def login_page(request: Request, next: str = "/") -> Response:
     if not request.app.state.services.auth.enabled():
         return RedirectResponse("/", status_code=303)
     safe_next = next if next.startswith("/") and not next.startswith("//") else "/"
-    return _render(request, "login.html", "login", "Log in", next_url=safe_next)
+    username_required = request.app.state.services.auth.managed_by_env
+    return _render(request, "login.html", "login", "Log in", next_url=safe_next, username_required=username_required)

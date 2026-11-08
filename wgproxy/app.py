@@ -15,6 +15,7 @@ from . import __version__
 from .api import router as api_router
 from .config import AppConfig
 from .engine import EngineTimings
+from .hosts import is_loopback
 from .pages import router as pages_router
 from .security import SecurityMiddleware
 from .services import build_services
@@ -39,6 +40,12 @@ def create_app(
         tasks: list[asyncio.Task[None]] = []
         if background:
             log.info("starting (data directory %s)", cfg.data_dir)
+            if not is_loopback(cfg.listen_host):
+                log.info("WebUI and proxies listen on %s", cfg.listen_host)
+                if not services.auth.enabled():
+                    log.warning(
+                        "the WebUI listens on %s without a password: set WGPROXY_WEBUI_PASSWORD", cfg.listen_host
+                    )
             await services.engine.start()
             tasks = [
                 asyncio.create_task(services.upstream.run(), name="upstream-monitor"),

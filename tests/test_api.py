@@ -9,31 +9,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from wgproxy.__main__ import main as cli_main
-from wgproxy.app import create_app
-from wgproxy.config import AppConfig
 
-from .conftest import free_port_range, make_conf, make_key
+from .conftest import LOOPBACK_HOSTS, free_port_range, make_conf, make_key
 
-HEADERS = {"X-Requested-With": "wgproxy"}
+
+def use_free_ports(client: TestClient) -> int:
+    base = free_port_range()
+    response = client.put("/api/settings", json={"port_range_start": base, "port_range_end": base + 50})
+    assert response.status_code == 200, response.text
+    return base
 
 
 @pytest.fixture
-def client(tmp_path: Path, monkeypatch):
-    cfg = AppConfig(
-        data_dir=tmp_path / "data",
-        sing_box=str(tmp_path / "missing-sing-box"),  # validation is skipped without a binary
-        webui_port=18080,
-        log_level="INFO",
-        allowed_hosts=frozenset({"127.0.0.1", "localhost", "::1"}),
-    )
-    monkeypatch.setenv("WGPROXY_DATA_DIR", str(cfg.data_dir))
-    app = create_app(cfg, background=False)
-    base = free_port_range()
-    with TestClient(app, base_url="http://127.0.0.1:18080", headers=HEADERS) as test_client:
-        response = test_client.put("/api/settings", json={"port_range_start": base, "port_range_end": base + 50})
-        assert response.status_code == 200, response.text
-        test_client.base_port = base  # type: ignore[attr-defined]
-        yield test_client
+def client(make_client):
+    test_client = make_client()
+    test_client.base_port = use_free_ports(test_client)  # type: ignore[attr-defined]
+    return test_client
 
 
 def paste(client: TestClient, name: str, text: str | None = None, enable: bool = True) -> dict:
@@ -164,6 +155,8 @@ def test_settings_validation(client: TestClient):
     assert client.put("/api/settings", json={"bootstrap_dns": "dns.google"}).status_code == 422
     assert client.put("/api/settings", json={"proxy_username": "a:b"}).status_code == 422
     assert client.put("/api/settings", json={"no_such_setting": 1}).status_code == 422
+    for bad_host in ("0.0.0.0", "::", "http://203.0.113.10", "203.0.113.10:8080"):
+        assert client.put("/api/settings", json={"public_host": bad_host}).status_code == 422, bad_host
     response = client.put("/api/settings", json={"upstream_host": "", "test_concurrency": 10})
     assert response.status_code == 200
     assert response.json()["changed"] == ["test_concurrency", "upstream_host"]
@@ -194,3 +187,51 @@ def test_password_protection(client: TestClient, tmp_path: Path):
     # The CLI reset removes the password (e.g. when it was forgotten).
     assert cli_main(["reset-ui-password"]) == 0
     assert client.get("/api/status").status_code == 200
+
+
+def exported_hosts(client: TestClient, **headers: str) -> set[str]:
+    text = client.get("/api/export", headers=headers).text
+    return {line.rsplit("@", 1)[1].rsplit(":", 1)[0] for line in text.splitlines()}
+
+
+def test_export_on_a_wildcard_bind_never_uses_the_bind_address(make_client):
+    client = make_client(listen_host="0.0.0.0", allowed_hosts=LOOPBACK_HOSTS | {"194.36.188.178"})
+    base = use_free_ports(client)
+    paste(client, "US-miami-1")
+    status = client.get("/api/status").json()
+    username, password = status["credentials"]["username"], status["credentials"]["password"]
+    assert status["listen_host"] == "0.0.0.0"
+
+    # No public host: the address the WebUI was opened with (the request's Host header).
+    export = client.get("/api/export", headers={"Host": "194.36.188.178:18080"})
+    assert export.text == f"socks5://{username}:{password}@194.36.188.178:{base}\n"
+    assert exported_hosts(client) == {"127.0.0.1"}  # opened as http://127.0.0.1:18080
+    assert client.get("/api/status", headers={"Host": "194.36.188.178:18080"}).json()["export_host"] == "194.36.188.178"
+
+    # The Settings value comes next; the dashboard and the Settings page show it too.
+    assert client.put("/api/settings", json={"public_host": " VPS.Example.com "}).status_code == 200
+    assert exported_hosts(client, Host="194.36.188.178:18080") == {"vps.example.com"}
+    assert client.get("/api/export", params={"scheme": "http", "download": False}).text.startswith("http://")
+    assert client.get("/api/settings").json()["export_host"] == "vps.example.com"
+    assert "@vps.example.com:PORT" in client.get("/").text
+    settings_page = client.get("/settings").text
+    assert 'name="public_host"' in settings_page and "Public host/IP for export" in settings_page
+    assert "every listener is bound to 0.0.0.0" in settings_page
+
+
+def test_public_host_from_the_environment_overrides_the_setting(make_client):
+    client = make_client(listen_host="0.0.0.0", public_host="203.0.113.10")
+    use_free_ports(client)
+    paste(client, "a")
+    assert client.put("/api/settings", json={"public_host": "vps.example.com"}).status_code == 200
+    assert exported_hosts(client) == {"203.0.113.10"}
+    settings = client.get("/api/settings").json()
+    assert settings["public_host"] == "vps.example.com"
+    assert settings["public_host_env"] == settings["export_host"] == "203.0.113.10"
+
+
+def test_export_uses_a_specific_listen_address(make_client):
+    client = make_client(listen_host="127.0.0.1", allowed_hosts=LOOPBACK_HOSTS)
+    use_free_ports(client)
+    paste(client, "a")
+    assert exported_hosts(client, Host="localhost:18080") == {"127.0.0.1"}

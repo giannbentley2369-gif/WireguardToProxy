@@ -29,7 +29,7 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="footer">
-    WireGuard to Proxy {{ version }} · <span id="engine-version">sing-box</span> · every listener is bound to 127.0.0.1
+    WireGuard to Proxy {{ version }} · <span id="engine-version">sing-box</span> · every listener is bound to {{ listen_host }}
   </footer>
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <script type="module" src="/static/{{ page }}.js?v={{ version }}"></script>

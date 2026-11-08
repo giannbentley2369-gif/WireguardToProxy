@@ -2,7 +2,8 @@
 
 Rules enforced here (see the README, "Architecture"):
 
-* every inbound listens on 127.0.0.1 only;
+* every inbound listens on the configured listen host only (127.0.0.1 unless
+  WGPROXY_LISTEN_HOST says otherwise) and requires the proxy credentials;
 * every WireGuard endpoint is userspace (``"system": false``) and dials through a detour:
   the SOCKS5 ``upstream`` outbound when one is configured, otherwise an explicit ``direct``
   outbound;
@@ -22,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .config import LISTEN_HOST
+from .config import DEFAULT_LISTEN_HOST
 from .wgconf import Peer, WireGuardConfig
 
 UPSTREAM_TAG = "upstream"
@@ -52,6 +53,7 @@ class EngineSettings:
     default_mtu: int = 1280
     default_keepalive: int = 25
     log_level: str = "warn"
+    listen_host: str = DEFAULT_LISTEN_HOST
 
 
 @dataclass(frozen=True)
@@ -189,7 +191,7 @@ def build_config(tunnels: Sequence[Tunnel], settings: EngineSettings) -> dict[st
             {
                 "type": "mixed",
                 "tag": in_tag,
-                "listen": LISTEN_HOST,
+                "listen": settings.listen_host,
                 "listen_port": tunnel.port,
                 "users": [{"username": settings.proxy_username, "password": settings.proxy_password}],
             }

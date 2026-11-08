@@ -11,8 +11,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
+from .config import DEFAULT_LISTEN_HOST
 from .db import Database
-from .ports import NoFreePortError, PortAllocator, reserved_ports
+from .ports import NoFreePortError, PortAllocator, port_probe, reserved_ports
 from .settings import SettingsStore
 from .wgconf import MAX_CONF_SIZE, ConfParseError, WireGuardConfig, parse_wireguard_conf
 
@@ -145,10 +146,12 @@ class Importer:
         webui_port: int,
         running_ports: Callable[[], set[int]] = set,
         validator: Validator | None = None,
+        listen_host: str = DEFAULT_LISTEN_HOST,
     ):
         self.db = db
         self.store = store
         self.webui_port = webui_port
+        self.listen_host = listen_host
         self.running_ports = running_ports
         self.validator = validator
 
@@ -170,6 +173,7 @@ class Importer:
             settings.port_range_start,
             settings.port_range_end,
             reserved_ports(self.webui_port, settings.upstream_host, settings.upstream_port),
+            probe=port_probe(self.listen_host),
         )
         for (index, candidate, conf), validation_error in zip(parsed, errors):
             if validation_error:

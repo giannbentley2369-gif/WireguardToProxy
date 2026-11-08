@@ -16,3 +16,6 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# Local deployment overrides (may hold WGPROXY_WEBUI_PASSWORD)
+.env

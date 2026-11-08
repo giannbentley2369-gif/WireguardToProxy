@@ -17,8 +17,8 @@ from urllib.parse import quote
 import httpx
 
 from . import __version__
-from .config import LISTEN_HOST
 from .db import Database, ProxyRow, utcnow_iso
+from .hosts import LOOPBACK_V4, url_host
 from .settings import Settings, SettingsStore
 from .upstream import upstream_proxy_url
 
@@ -32,8 +32,8 @@ IP_API_BATCH_SIZE = 100
 _IP_RE = re.compile(r"[0-9a-fA-F:.]{3,45}")
 
 
-def proxy_url(scheme: str, username: str, password: str, port: int) -> str:
-    return f"{scheme}://{quote(username, safe='')}:{quote(password, safe='')}@{LISTEN_HOST}:{port}"
+def proxy_url(scheme: str, username: str, password: str, host: str, port: int) -> str:
+    return f"{scheme}://{quote(username, safe='')}:{quote(password, safe='')}@{url_host(host)}:{port}"
 
 
 def extract_ip(text: str) -> str | None:
@@ -81,12 +81,14 @@ def _explain_failure(exc: Exception) -> str:
     return _describe(exc)
 
 
-async def check_proxy(port: int, username: str, password: str, url: str, timeout: float) -> CheckResult:
-    """Fetch ``url`` through the local SOCKS5 listener on ``port``."""
+async def check_proxy(
+    port: int, username: str, password: str, url: str, timeout: float, host: str = LOOPBACK_V4
+) -> CheckResult:
+    """Fetch ``url`` through the local SOCKS5 listener on ``host:port``."""
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(
-            proxy=proxy_url("socks5", username, password, port),
+            proxy=proxy_url("socks5", username, password, host, port),
             timeout=timeout,
             trust_env=False,
             follow_redirects=True,
@@ -154,9 +156,10 @@ class TestJob:
 
 
 class Tester:
-    def __init__(self, db: Database, store: SettingsStore):
+    def __init__(self, db: Database, store: SettingsStore, host: str = LOOPBACK_V4):
         self.db = db
         self.store = store
+        self.host = host  # where the proxy listeners are reachable from this process
         self.job: TestJob | None = None
         self._task: asyncio.Task[None] | None = None
         self._seq = 0
@@ -235,7 +238,12 @@ class Tester:
         async def run_one(row: ProxyRow) -> None:
             async with limiter:
                 result = await check_proxy(
-                    row.port, settings.proxy_username, settings.proxy_password, settings.test_url, settings.test_timeout
+                    row.port,
+                    settings.proxy_username,
+                    settings.proxy_password,
+                    settings.test_url,
+                    settings.test_timeout,
+                    host=self.host,
                 )
             results[row.id] = result
             self._store_result(row, result)
