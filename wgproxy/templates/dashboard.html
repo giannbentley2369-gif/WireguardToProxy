@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card credentials">
+  <div class="cred-item">
+    <span class="label">Proxy username</span>
+    <code id="cred-user">…</code>
+    <button type="button" class="btn tiny" data-copy="user">Copy</button>
+  </div>
+  <div class="cred-item">
+    <span class="label">Password</span>
+    <code id="cred-pass">••••••••••</code>
+    <button type="button" class="btn tiny" id="cred-reveal">Show</button>
+    <button type="button" class="btn tiny" data-copy="pass">Copy</button>
+  </div>
+  <div class="cred-item grow muted">
+    Each proxy accepts SOCKS5 and HTTP on the same port, e.g. <code id="cred-example">socks5://USER:PASS@127.0.0.1:PORT</code>
+  </div>
+</section>
+
+<section class="toolbar">
+  <input type="search" id="filter-text" placeholder="Search name, endpoint, IP, country…" aria-label="Search">
+  <select id="filter-status" aria-label="Filter by status">
+    <option value="">All statuses</option>
+    <option value="ok">OK</option>
+    <option value="dead">Dead</option>
+    <option value="unknown">Unknown</option>
+    <option value="disabled">Disabled</option>
+    <option value="problem">Errors / not running</option>
+  </select>
+  <select id="filter-country" aria-label="Filter by country">
+    <option value="">All countries</option>
+  </select>
+  <span class="spacer"></span>
+  <button type="button" class="btn primary" id="btn-test-all">Test all</button>
+  <button type="button" class="btn" id="btn-export">Export…</button>
+  <a class="btn" href="/add">Add configs</a>
+</section>
+
+<section class="bulkbar" id="bulkbar" hidden>
+  <strong id="bulk-count">0 selected</strong>
+  <button type="button" class="btn small" data-bulk="enable">Enable</button>
+  <button type="button" class="btn small" data-bulk="disable">Disable</button>
+  <button type="button" class="btn small" data-bulk="test">Test</button>
+  <button type="button" class="btn small" data-bulk="retry">Retry errors</button>
+  <button type="button" class="btn small danger" data-bulk="delete">Delete</button>
+  <button type="button" class="btn small ghost" id="bulk-clear">Clear selection</button>
+</section>
+
+<section class="progress" id="test-progress" hidden>
+  <div id="test-progress-text"></div>
+  <progress id="test-progress-bar" max="1" value="0"></progress>
+</section>
+
+<div class="table-wrap">
+  <table class="proxies">
+    <thead>
+      <tr>
+        <th class="col-check"><input type="checkbox" id="select-all" aria-label="Select all visible proxies"></th>
+        <th data-sort="name">Name</th>
+        <th data-sort="port" class="num">Port</th>
+        <th>Enabled</th>
+        <th data-sort="status">Status</th>
+        <th data-sort="exit_ip">Exit IP</th>
+        <th data-sort="country">Country</th>
+        <th data-sort="latency_ms" class="num">Latency</th>
+        <th data-sort="checked_at">Checked</th>
+        <th class="col-actions">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="proxy-rows"></tbody>
+  </table>
+</div>
+<p class="empty" id="empty-state" hidden>No proxies yet. <a href="/add">Add WireGuard configs</a> to get started.</p>
+<p class="muted summary" id="summary"></p>
+
+<dialog id="export-dialog">
+  <form method="dialog" id="export-form" class="dialog-body">
+    <h2>Export proxies.txt</h2>
+    <fieldset class="inline">
+      <legend>Format</legend>
+      <label><input type="radio" name="scheme" value="socks5" checked> socks5://USER:PASS@127.0.0.1:PORT</label>
+      <label><input type="radio" name="scheme" value="http"> http://USER:PASS@127.0.0.1:PORT</label>
+    </fieldset>
+    <label class="check"><input type="checkbox" name="enabled_only" checked> Enabled proxies only</label>
+    <label class="check"><input type="checkbox" name="status_ok"> Only proxies whose last test succeeded</label>
+    <label class="check"><input type="checkbox" name="selected_only"> Only the <span id="export-selected-count">0</span> selected proxies</label>
+    <label class="field">Country
+      <select name="country" id="export-country"><option value="">Any country</option></select>
+    </label>
+    <p class="muted" id="export-count">…</p>
+    <pre class="preview" id="export-preview"></pre>
+    <div class="actions">
+      <button type="button" class="btn primary" id="export-download">Download proxies.txt</button>
+      <button type="button" class="btn" id="export-copy">Copy</button>
+      <button type="submit" class="btn ghost">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="edit-dialog">
+  <form method="dialog" id="edit-form" class="dialog-body">
+    <h2>Edit proxy</h2>
+    <label class="field">Name
+      <input type="text" name="name" required maxlength="64" pattern="[A-Za-z0-9._\-]+" title="Letters, digits, dot, underscore and dash">
+    </label>
+    <label class="field">Local port (port override)
+      <input type="number" name="port" required min="1024" max="65535">
+    </label>
+    <div class="alert alert-error" id="edit-error" hidden></div>
+    <div class="alert" id="edit-notice" hidden></div>
+    <dl class="details" id="edit-details"></dl>
+    <div class="actions">
+      <button type="button" class="btn primary" id="edit-save">Save</button>
+      <button type="button" class="btn" id="edit-retry" hidden>Clear error and retry</button>
+      <button type="submit" class="btn ghost">Cancel</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

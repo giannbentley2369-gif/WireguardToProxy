@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · WireGuard to Proxy</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+</head>
+<body data-page="{{ page }}">
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/favicon.svg" alt="" width="22" height="22"><span>WireGuard → Proxy</span></a>
+    {% if page != "login" %}
+    <nav class="nav" aria-label="Main">
+      <a href="/" {% if page == "dashboard" %}aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/add" {% if page == "add" %}aria-current="page"{% endif %}>Add configs</a>
+      <a href="/logs" {% if page == "logs" %}aria-current="page"{% endif %}>Engine &amp; logs</a>
+      <a href="/settings" {% if page == "settings" %}aria-current="page"{% endif %}>Settings</a>
+    </nav>
+    <div class="pills">
+      <span class="pill pill-idle" id="pill-engine">Engine …</span>
+      <span class="pill pill-idle" id="pill-upstream">Upstream …</span>
+      {% if auth_enabled %}<button type="button" class="btn small ghost" id="logout">Log out</button>{% endif %}
+    </div>
+    {% endif %}
+  </header>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    WireGuard to Proxy {{ version }} · <span id="engine-version">sing-box</span> · every listener is bound to 127.0.0.1
+  </footer>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script type="module" src="/static/{{ page }}.js?v={{ version }}"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Add WireGuard configs</h1>
+<p class="muted">
+  Standard <code>wg-quick</code> <code>.conf</code> files are accepted. The proxy name comes from the file name
+  (<code>US-miami-1.conf</code> → <code>US-miami-1</code>); each config gets a stable local port. Configs that reuse
+  the private key <em>and</em> server of an existing config are rejected as duplicates.
+</p>
+
+<div class="grid two">
+  <section class="card">
+    <h2>Upload files</h2>
+    <form id="upload-form">
+      <div class="dropzone" id="drop-zone" tabindex="0" role="button" aria-label="Choose .conf or .zip files">
+        <strong>Drop .conf or .zip files here</strong>
+        <span class="muted">or click to choose (multiple files allowed)</span>
+      </div>
+      <input type="file" id="file-input" accept=".conf,.zip" multiple hidden>
+      <ul class="file-list" id="file-list"></ul>
+      <label class="check"><input type="checkbox" id="upload-enable" checked> Enable after import</label>
+      <div class="actions">
+        <button type="submit" class="btn primary" id="upload-submit" disabled>Import files</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Paste a config</h2>
+    <form id="paste-form">
+      <label class="field">Name
+        <input type="text" id="paste-name" maxlength="64" placeholder="e.g. US-miami-1" autocomplete="off">
+      </label>
+      <label class="field">Configuration
+        <textarea id="paste-text" rows="12" spellcheck="false" required placeholder="[Interface]&#10;PrivateKey = …&#10;Address = 10.0.0.2/32&#10;DNS = 10.0.0.1&#10;&#10;[Peer]&#10;PublicKey = …&#10;Endpoint = vpn.example.com:51820&#10;AllowedIPs = 0.0.0.0/0"></textarea>
+      </label>
+      <label class="check"><input type="checkbox" id="paste-enable" checked> Enable after import</label>
+      <div class="actions">
+        <button type="submit" class="btn primary">Import text</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<section class="card" id="results-card" hidden>
+  <h2>Import results</h2>
+  <p id="results-summary"></p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Result</th><th>Source</th><th>Name</th><th class="num">Port</th><th>Notes</th></tr></thead>
+      <tbody id="results-rows"></tbody>
+    </table>
+  </div>
+  <p><a class="btn" href="/">Go to the dashboard</a></p>
+</section>
+{% endblock %}

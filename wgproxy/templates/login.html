@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card narrow">
+  <h1>Log in</h1>
+  <form id="login-form" data-next="{{ next_url }}">
+    <label class="field">WebUI password
+      <input type="password" id="login-password" required autocomplete="current-password" autofocus>
+    </label>
+    <div class="alert alert-error" id="login-error" hidden></div>
+    <div class="actions"><button type="submit" class="btn primary">Log in</button></div>
+  </form>
+  <p class="muted">Forgot it? Run <code>docker compose exec wireguard-to-proxy python -m wgproxy reset-ui-password</code>.</p>
+</section>
+{% endblock %}

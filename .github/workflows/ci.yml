@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  SING_BOX_VERSION: "1.14.4"
+  SING_BOX_SHA256: "699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the pinned sing-box binary
+        run: |
+          name="sing-box-${SING_BOX_VERSION}-linux-amd64"
+          curl -fsSL -o /tmp/sing-box.tar.gz \
+            "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/${name}.tar.gz"
+          echo "${SING_BOX_SHA256}  /tmp/sing-box.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+          sudo install -m 0755 "/tmp/${name}/sing-box" /usr/local/bin/sing-box
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - name: Start the stack and wait for the healthcheck
+        run: |
+          mkdir -p data
+          docker compose up -d
+          for _ in $(seq 1 60); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' wireguard-to-proxy)"
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs
+          test "$(docker inspect -f '{{.State.Health.Status}}' wireguard-to-proxy)" = healthy
+          curl -fsS http://127.0.0.1:8080/healthz
+      - if: always()
+        run: docker compose down

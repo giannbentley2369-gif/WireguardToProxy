@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<form id="settings-form" class="settings" autocomplete="off">
+  <section class="card">
+    <h2>Upstream proxy</h2>
+    <p class="muted">
+      SOCKS5 proxy of the outer VPN client (Throne / sing-box / Clash: usually <code>127.0.0.1:2080</code>). Every
+      WireGuard endpoint and the endpoint-hostname DNS server dial through it, so all tunnel traffic stays on loopback
+      and is never captured by the outer VPN's TUN. Leave the host empty for direct mode (tunnels then follow the host
+      routing table). The upstream must support UDP (SOCKS5 UDP ASSOCIATE).
+    </p>
+    <div class="grid four">
+      <label class="field">Host <input type="text" name="upstream_host" placeholder="empty = direct mode"></label>
+      <label class="field">Port <input type="number" name="upstream_port" min="1" max="65535"></label>
+      <label class="field">Username <input type="text" name="upstream_username" placeholder="optional"></label>
+      <label class="field">Password
+        <span class="with-button"><input type="password" name="upstream_password" placeholder="optional"><button type="button" class="btn tiny" data-reveal="upstream_password">Show</button></span>
+      </label>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" id="upstream-test">Test upstream</button>
+      <button type="button" class="btn ghost" id="upstream-direct">Use direct mode</button>
+    </div>
+    <ul class="steps" id="upstream-result" hidden></ul>
+  </section>
+
+  <section class="card">
+    <h2>Proxy credentials</h2>
+    <p class="muted">Required by every local proxy (SOCKS5 and HTTP). Generated at install; changing them restarts all tunnels.</p>
+    <div class="grid four">
+      <label class="field">Username <input type="text" name="proxy_username" required maxlength="64"></label>
+      <label class="field">Password
+        <span class="with-button"><input type="password" name="proxy_password" required maxlength="128"><button type="button" class="btn tiny" data-reveal="proxy_password">Show</button></span>
+      </label>
+    </div>
+    <div class="actions"><button type="button" class="btn" id="regenerate-password">Generate a new password</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Ports</h2>
+    <p class="muted">New proxies get the lowest free port in this range. Existing assignments never move unless their port is unavailable at start-up (only that proxy moves). Per-proxy overrides are below.</p>
+    <div class="grid four">
+      <label class="field">Range start <input type="number" name="port_range_start" min="1024" max="65535"></label>
+      <label class="field">Range end <input type="number" name="port_range_end" min="1024" max="65535"></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>DNS</h2>
+    <div class="grid four">
+      <label class="field">Bootstrap DNS server
+        <input type="text" name="bootstrap_dns">
+        <small class="muted">Resolves WireGuard endpoint host names, through the upstream proxy.</small>
+      </label>
+      <label class="field">Bootstrap DNS protocol
+        <select name="bootstrap_dns_protocol"><option value="udp">UDP</option><option value="tcp">TCP</option></select>
+      </label>
+      <label class="field">Tunnel DNS fallback
+        <input type="text" name="tunnel_dns_fallback">
+        <small class="muted">Used inside tunnels whose .conf has no <code>DNS =</code>. Queries travel through the tunnel.</small>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Tunnels and engine</h2>
+    <div class="grid four">
+      <label class="field">Default MTU
+        <input type="number" name="default_mtu" min="1000" max="9000">
+        <small class="muted">Also the upper limit for an MTU set in a .conf.</small>
+      </label>
+      <label class="field">Default keepalive (s)
+        <input type="number" name="default_keepalive" min="0" max="3600">
+        <small class="muted">When the .conf has no PersistentKeepalive. 0 = off.</small>
+      </label>
+      <label class="field">Engine log level
+        <select name="log_level">
+          <option value="error">error</option><option value="warn">warn</option><option value="info">info</option>
+          <option value="debug">debug</option><option value="trace">trace</option>
+        </select>
+      </label>
+      <label class="field">GOMEMLIMIT per process
+        <input type="text" name="gomemlimit" placeholder="384MiB">
+      </label>
+      <label class="field">Tunnels per engine process
+        <input type="number" name="shard_size" min="1" max="1000">
+        <small class="muted">Batch size for the staggered start; a change only restarts that batch.</small>
+      </label>
+      <label class="field">Delay between batches (s)
+        <input type="number" name="shard_start_delay" min="0" max="120" step="0.5">
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Testing</h2>
+    <div class="grid four">
+      <label class="field">Exit IP URL <input type="url" name="test_url"></label>
+      <label class="field">Timeout (s) <input type="number" name="test_timeout" min="2" max="120" step="0.5"></label>
+      <label class="field">Parallel tests <input type="number" name="test_concurrency" min="1" max="200"></label>
+      <label class="field">Automatic test every (min)
+        <input type="number" name="auto_test_interval" min="0" max="10080">
+        <small class="muted">0 = never.</small>
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" name="geo_via_upstream"> Send ip-api.com country lookups through the upstream proxy</label>
+  </section>
+
+  <div class="sticky-actions">
+    <button type="submit" class="btn primary">Save settings</button>
+    <span class="muted" id="save-hint">Changes to upstream, DNS, credentials or tunnel options regenerate the engine configuration (staggered restart).</span>
+  </div>
+</form>
+
+<section class="card">
+  <h2>WebUI password</h2>
+  <p class="muted" id="ui-password-status">…</p>
+  <form id="ui-password-form" class="grid four" autocomplete="off">
+    <label class="field">New password <input type="password" id="ui-password" minlength="8" autocomplete="new-password"></label>
+    <label class="field">Repeat <input type="password" id="ui-password-repeat" minlength="8" autocomplete="new-password"></label>
+    <div class="actions align-end">
+      <button type="submit" class="btn primary">Set password</button>
+      <button type="button" class="btn danger" id="ui-password-disable" hidden>Remove password</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Per-proxy port overrides</h2>
+    <button type="button" class="btn primary" id="ports-save">Save port changes</button>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Proxy</th><th class="num">Current port</th><th>New port</th><th>Notice</th></tr></thead>
+      <tbody id="port-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Backup</h2>
+  <p class="muted">Everything lives in the mounted <code>./data</code> directory. You can also download all imported .conf files at once.</p>
+  <a class="btn" href="/api/backup.zip" download>Download all .conf files (zip)</a>
+</section>
+{% endblock %}

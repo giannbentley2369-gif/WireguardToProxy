@@ -1,0 +1,47 @@
+services:
+  wireguard-to-proxy:
+    build:
+      context: .
+      args:
+        SING_BOX_VERSION: "1.14.4"
+    image: wireguard-to-proxy:latest
+    container_name: wireguard-to-proxy
+    # Host networking: the WebUI and every proxy bind 127.0.0.1 of the host itself, and the
+    # outer VPN client's SOCKS5 port (127.0.0.1:2080) is reachable on the same loopback.
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      WGPROXY_WEBUI_PORT: ${WGPROXY_WEBUI_PORT:-8080}
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Userspace only: no NET_ADMIN, no TUN device, no routing or firewall changes.
+    # These capabilities are used solely by the entrypoint to fix ./data ownership before it
+    # drops root; the WebUI and sing-box run unprivileged as PUID:PGID.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-m", "wgproxy", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

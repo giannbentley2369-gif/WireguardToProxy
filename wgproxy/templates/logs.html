@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h2>Engine processes</h2>
+    <button type="button" class="btn" id="restart-engine">Restart engine (staggered)</button>
+  </div>
+  <p class="muted" id="engine-message"></p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Shard</th><th>State</th><th class="num">PID</th><th class="num">Tunnels</th><th>Ports</th><th>Last error</th></tr></thead>
+      <tbody id="shard-rows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card logs-card">
+  <div class="toolbar">
+    <select id="log-source" aria-label="Log source"><option value="">All sources</option></select>
+    <select id="log-level" aria-label="Minimum level">
+      <option value="">All levels</option>
+      <option value="WARN">Warnings and errors</option>
+      <option value="ERROR">Errors only</option>
+    </select>
+    <input type="search" id="log-filter" placeholder="Filter text…" aria-label="Filter log text">
+    <label class="check"><input type="checkbox" id="log-autoscroll" checked> Auto-scroll</label>
+    <span class="spacer"></span>
+    <span class="pill pill-idle" id="log-connection">connecting…</span>
+    <button type="button" class="btn small" id="log-pause">Pause</button>
+    <button type="button" class="btn small" id="log-clear">Clear view</button>
+    <button type="button" class="btn small" id="log-download">Download</button>
+  </div>
+  <div class="log-view" id="log-view" aria-live="off"></div>
+</section>
+{% endblock %}
