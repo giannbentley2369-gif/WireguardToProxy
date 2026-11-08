@@ -335,6 +335,9 @@ happens while the upstream is down, when every tunnel logs a reconnect error eac
 logs. Fix or re-import the config, then click **Clear error and retry**. Restarting the engine also
 retries every excluded tunnel.
 
+**`docker compose ps` shows "Exited (143)" after a stop.** That is a clean shutdown: the server stops
+every engine process, then re-raises SIGTERM, so Docker reports 128 + 15.
+
 **Changing the sing-box version.** Set the `SING_BOX_VERSION` build argument and the
 `SING_BOX_SHA256_*` checksums in the `Dockerfile` (copy them from the release's asset digests). This
 application targets 1.14.x.
