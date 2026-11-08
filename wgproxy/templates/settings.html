@@ -38,6 +38,20 @@
   </section>
 
   <section class="card">
+    <h2>Export</h2>
+    <p class="muted">
+      Host written into exported proxy URLs and the dashboard's <em>Copy URL</em>. Leave it empty to use the listen
+      address, or, when every interface is bound (<code>0.0.0.0</code>), the address you opened this WebUI with.
+    </p>
+    <div class="grid four">
+      <label class="field">Public host/IP for export
+        <input type="text" name="public_host" maxlength="253" placeholder="e.g. 203.0.113.10 or vps.example.com" spellcheck="false">
+        <small class="muted" id="public-host-hint"></small>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>Ports</h2>
     <p class="muted">New proxies get the lowest free port in this range. Existing assignments never move unless their port is unavailable at start-up (only that proxy moves). Per-proxy overrides are below.</p>
     <div class="grid four">

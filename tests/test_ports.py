@@ -10,6 +10,7 @@ from wgproxy.ports import (
     PortValidationError,
     assign_shards,
     is_port_free,
+    port_probe,
     repair_ports,
     reserved_ports,
 )
@@ -92,7 +93,24 @@ def test_is_port_free_detects_listeners():
         sock.listen()
         port = sock.getsockname()[1]
         assert is_port_free(port) is False
+        # A wildcard bind would collide with the loopback listener as well.
+        assert is_port_free(port, "0.0.0.0") is False
+        assert port_probe("0.0.0.0")(port) is False
     assert is_port_free(port) is True
+    assert port_probe("0.0.0.0")(port) is True
+
+
+def test_is_port_free_supports_ipv6_hosts():
+    try:
+        sock = socket.socket(socket.AF_INET6)
+        sock.bind(("::1", 0))
+    except OSError:
+        pytest.skip("IPv6 loopback is not available")
+    with sock:
+        sock.listen()
+        port = sock.getsockname()[1]
+        assert is_port_free(port, "::1") is False
+    assert is_port_free(port, "::1") is True
 
 
 def test_reserved_ports_include_loopback_upstream_only():

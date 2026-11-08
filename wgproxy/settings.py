@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .db import Database
+from .hosts import parse_public_host
 from .wgconf import is_hostname, is_ip
 
 log = logging.getLogger("wgproxy.settings")
@@ -43,6 +44,9 @@ class Settings(BaseModel):
     # Credentials required by every local proxy listener.
     proxy_username: str = Field("wgproxy", min_length=1, max_length=64)
     proxy_password: str = Field("", max_length=128)
+
+    # Host written into exported proxy URLs (WGPROXY_PUBLIC_HOST overrides it). Empty = automatic.
+    public_host: str = Field("", max_length=253)
 
     port_range_start: int = Field(20000, ge=1024, le=65535)
     port_range_end: int = Field(20999, ge=1024, le=65535)
@@ -81,6 +85,11 @@ class Settings(BaseModel):
             return str(ipaddress.ip_address(value))
         except ValueError:
             raise ValueError("must be an IP address") from None
+
+    @field_validator("public_host")
+    @classmethod
+    def _check_public_host(cls, value: str) -> str:
+        return parse_public_host(value)
 
     @field_validator("proxy_username")
     @classmethod

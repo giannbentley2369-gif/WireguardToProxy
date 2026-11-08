@@ -28,13 +28,14 @@ TIMINGS = EngineTimings(
 
 
 class Env:
-    def __init__(self, tmp_path: Path, sing_box: Path):
+    def __init__(self, tmp_path: Path, sing_box: Path, listen_host: str = "127.0.0.1"):
         self.cfg = AppConfig(
             data_dir=tmp_path / "data",
             sing_box=str(sing_box),
             webui_port=free_port_range(),
             log_level="INFO",
             allowed_hosts=frozenset({"127.0.0.1"}),
+            listen_host=listen_host,
         )
         self.cfg.engine_dir.mkdir(parents=True)
         self.db = Database(self.cfg.db_path)
@@ -49,7 +50,7 @@ class Env:
         self.engine = Engine(self.cfg, self.db, self.store, self.hub, upstream_probe=self.monitor.probe, timings=TIMINGS)
 
     async def add(self, count: int) -> list[int]:
-        importer = Importer(self.db, self.store, self.cfg.webui_port)
+        importer = Importer(self.db, self.store, self.cfg.webui_port, listen_host=self.cfg.listen_host)
         outcomes = await importer.import_candidates(
             [Candidate(f"p{i}.conf", f"p{i}", make_conf()) for i in range(count)]
         )
@@ -101,6 +102,19 @@ async def test_staggered_start_and_graceful_shutdown(env: Env):
     assert all(env.state(index)["stopped"] is not None for index in range(3))  # exited via SIGTERM
     assert all(is_port_free(row.port) for row in rows)
     assert env.engine.state == "stopped"
+
+
+async def test_listeners_bind_the_configured_listen_host(tmp_path: Path, fake_sing_box: Path):
+    env = Env(tmp_path, fake_sing_box, listen_host="0.0.0.0")
+    try:
+        await env.add(2)
+        await env.engine.start()
+        await wait_for(running(env, 2))  # readiness is probed on loopback, which a wildcard bind serves
+        assert env.state(0)["listen"] == env.state(1)["listen"] == ["0.0.0.0"]
+        assert all(not is_port_free(row.port, "0.0.0.0") for row in env.db.list_proxies())
+    finally:
+        await env.engine.shutdown()
+        env.db.close()
 
 
 async def test_disabling_a_proxy_restarts_only_its_shard(env: Env):

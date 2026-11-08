@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import socket
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
-from .config import LISTEN_HOST
+from .config import DEFAULT_LISTEN_HOST
 
 MIN_PORT = 1024
 MAX_PORT = 65535
@@ -21,19 +22,25 @@ class PortValidationError(ValueError):
     pass
 
 
-def is_port_free(port: int, host: str = LISTEN_HOST) -> bool:
+def is_port_free(port: int, host: str = DEFAULT_LISTEN_HOST) -> bool:
     """True when a TCP listener could bind ``host:port`` right now.
 
     SO_REUSEADDR mirrors Go's ``net.Listen`` (used by sing-box), so sockets lingering in
     TIME_WAIT are not mistaken for a port that is in use.
     """
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((host, port))
     except OSError:
         return False
     return True
+
+
+def port_probe(host: str) -> PortProbe:
+    """Probe checking ports on the address the proxy listeners bind."""
+    return functools.partial(is_port_free, host=host)
 
 
 class PortAllocator:

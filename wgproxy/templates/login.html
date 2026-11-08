@@ -3,12 +3,25 @@
 <section class="card narrow">
   <h1>Log in</h1>
   <form id="login-form" data-next="{{ next_url }}">
+    {% if username_required %}
+    <label class="field">User name
+      <input type="text" id="login-username" required autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+    </label>
+    <label class="field">Password
+      <input type="password" id="login-password" required autocomplete="current-password">
+    </label>
+    {% else %}
     <label class="field">WebUI password
       <input type="password" id="login-password" required autocomplete="current-password" autofocus>
     </label>
+    {% endif %}
     <div class="alert alert-error" id="login-error" hidden></div>
     <div class="actions"><button type="submit" class="btn primary">Log in</button></div>
   </form>
+  {% if username_required %}
+  <p class="muted">The login is set by <code>WGPROXY_WEBUI_USERNAME</code> and <code>WGPROXY_WEBUI_PASSWORD</code> (in <code>.env</code> or <code>docker-compose.yml</code>).</p>
+  {% else %}
   <p class="muted">Forgot it? Run <code>docker compose exec wireguard-to-proxy python -m wgproxy reset-ui-password</code>.</p>
+  {% endif %}
 </section>
 {% endblock %}

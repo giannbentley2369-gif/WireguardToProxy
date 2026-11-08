@@ -9,7 +9,8 @@ to ~150 configs:
 
 - **Userspace only**: no kernel WireGuard, no TUN device, no routing-table or firewall changes, no
   `NET_ADMIN`.
-- **Loopback only**: the WebUI and every proxy bind `127.0.0.1`.
+- **Loopback by default**: the WebUI and every proxy bind `127.0.0.1` unless you set
+  `WGPROXY_LISTEN_HOST` (see [VPS deployment](#vps-deployment)).
 - **Upstream-proxy aware**: tunnels dial through the outer VPN client's SOCKS5 port, so their traffic
   never meets the outer VPN's TUN.
 
@@ -17,6 +18,7 @@ to ~150 configs:
 
 - [Features](#features)
 - [Quick start](#quick-start)
+- [VPS deployment](#vps-deployment)
 - [Architecture](#architecture)
 - [Usage](#usage)
 - [Configuration reference](#configuration-reference)
@@ -35,11 +37,12 @@ to ~150 configs:
   key *and* server of an existing config are rejected as duplicates.
 - **Test all**: fetches the exit IP through every enabled proxy (25 in parallel) and looks up countries
   with the ip-api.com batch API. Results are stored with timestamps.
-- **Export** `proxies.txt` as `socks5://USER:PASS@127.0.0.1:PORT` (or `http://…`), filtered by enabled
-  state, last test result, country or selection.
+- **Export** `proxies.txt` as `socks5://USER:PASS@HOST:PORT` (or `http://…`), filtered by enabled
+  state, last test result, country or selection. `HOST` is `127.0.0.1` locally, or your server's public
+  address (see [VPS deployment](#vps-deployment)).
 - **Engine & logs**: live sing-box log (server-sent events) and an overview of the engine processes.
-- **Settings**: upstream proxy (with a step-by-step test), proxy credentials, WebUI password, port range
-  and per-proxy port overrides, DNS, MTU and keepalive, engine batching, testing.
+- **Settings**: upstream proxy (with a step-by-step test), proxy credentials, public host for exports,
+  WebUI password, port range and per-proxy port overrides, DNS, MTU and keepalive, engine batching, testing.
 - **Stable ports** that survive restarts and reboots, with automatic per-proxy repair when a port is
   taken.
 - **Staggered start**: tunnels come up in small batches, not as one handshake burst.
@@ -70,6 +73,41 @@ elsewhere, change **Settings → Upstream proxy**. To run without an outer clien
 (direct mode).
 
 To update: `git pull && docker compose up -d --build`. State in `./data` is kept.
+
+## VPS deployment
+
+Out of the box nothing is reachable from other machines. On a server you manage over the internet,
+expose the WebUI and the proxies on purpose and put a login in front of the WebUI. Create a `.env` file
+next to `docker-compose.yml` (it is git-ignored), with your server's address instead of `203.0.113.10`:
+
+```dotenv
+# Bind the WebUI and every proxy on all interfaces (default: 127.0.0.1).
+WGPROXY_LISTEN_HOST=0.0.0.0
+# Address written into exported proxies.txt lines and "Copy URL".
+WGPROXY_PUBLIC_HOST=203.0.113.10
+# Addresses you open the WebUI with; any other Host header is refused.
+WGPROXY_ALLOWED_HOSTS=203.0.113.10,localhost,127.0.0.1
+# WebUI login. Single quotes keep characters such as $ literal.
+WGPROXY_WEBUI_USERNAME=admin
+WGPROXY_WEBUI_PASSWORD='a long random passphrase'
+```
+
+Run `docker compose up -d --build` and open `http://203.0.113.10:8080`: it must ask for the login.
+Without `--build`, an image built from older code keeps running and ignores these settings. Without an
+outer VPN client on the server, clear **Settings → Upstream proxy → Host** (direct mode).
+
+- **The WebUI speaks plain HTTP**: the login and the session cookie cross the network unencrypted. When you
+  can, keep `WGPROXY_LISTEN_HOST=127.0.0.1` and use an SSH tunnel
+  (`ssh -L 8080:127.0.0.1:8080 user@server`, then open `http://127.0.0.1:8080`), or put a TLS reverse
+  proxy in front of the WebUI.
+- **Every proxy port is exposed too.** Proxies keep requiring the proxy user name and password shown on the
+  dashboard, but SOCKS5/HTTP proxy authentication is not encrypted either. Limit who can connect, for
+  example `sudo ufw allow from 198.51.100.7 to any port 20000:20999 proto tcp`. Host networking publishes no
+  Docker ports, so firewall rules apply as for any host service.
+- Exports never contain `0.0.0.0` or `::`. Without `WGPROXY_PUBLIC_HOST` (or **Settings → Export**), they
+  use the listen address if it is a specific IP, otherwise the address you opened the WebUI with.
+- After 5 failed logins within a minute, a client address is refused (HTTP 429) until the minute is over.
+  Behind a reverse proxy, all clients share the proxy's address, so the limit applies to them together.
 
 ## Architecture
 
@@ -122,7 +160,8 @@ SOCKS5 handshake, TCP through the proxy (showing the outer exit IP) and UDP thro
 
 ### What every generated configuration guarantees
 
-- **Inbounds**: `mixed` on `127.0.0.1:PORT` with username/password authentication.
+- **Inbounds**: `mixed` on `WGPROXY_LISTEN_HOST:PORT` (default `127.0.0.1`) with username/password
+  authentication.
 - **Route rules**, in order:
   1. `resolve` destination names with the tunnel's own DNS server: the `.conf`'s `DNS =`, queried
      *through that tunnel* (fallback `1.1.1.1`, also through the tunnel). Names are never resolved via
@@ -220,15 +259,20 @@ and an automatic interval are under **Settings → Testing**.
 
 ### Exporting
 
-Use **Export…** on the dashboard, or script it. Scripts authenticate with HTTP Basic auth: any user
-name, with the WebUI password, if one is set.
+Use **Export…** on the dashboard, or script it. Scripts authenticate with HTTP Basic auth: the
+`WGPROXY_WEBUI_USERNAME`/`WGPROXY_WEBUI_PASSWORD` login, or any user name with the password from
+**Settings → WebUI password**.
 
 ```bash
-curl -u ":$WEBUI_PASSWORD" -o proxies.txt "http://127.0.0.1:8080/api/export?country=US&status=ok"
+curl -u "admin:$WGPROXY_WEBUI_PASSWORD" -o proxies.txt "http://127.0.0.1:8080/api/export?country=US&status=ok"
 ```
 
 Parameters: `scheme=socks5|http`, `enabled_only=true|false`, `status=any|ok`, `country=US,DE`
 (country codes or names), `ids=1,2,3`.
+
+The host in every line is, in this order: `WGPROXY_PUBLIC_HOST`, **Settings → Export → Public host/IP
+for export**, the listen address when it is a specific IP, and otherwise the host the request was sent to
+(`127.0.0.1` in the example above). A wildcard such as `0.0.0.0` is never exported.
 
 ### Using the proxies
 
@@ -244,12 +288,18 @@ Set these in `docker-compose.yml` or in a `.env` file next to it.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `WGPROXY_WEBUI_PORT` | `8080` | WebUI port. It always binds `127.0.0.1`. |
+| `WGPROXY_WEBUI_PORT` | `8080` | WebUI port, on `WGPROXY_LISTEN_HOST`. |
+| `WGPROXY_LISTEN_HOST` | `127.0.0.1` | IP address the WebUI and every proxy bind. `0.0.0.0` (or `::`) means every interface; see [VPS deployment](#vps-deployment). Host names are rejected. |
+| `WGPROXY_PUBLIC_HOST` | *(empty)* | Host name or IP written into exports and **Copy URL**. Overrides **Settings → Export**. Empty: derived automatically (see [Exporting](#exporting)). |
+| `WGPROXY_ALLOWED_HOSTS` | see `docker-compose.yml` | Extra host names/IPs, comma-separated, accepted in the `Host` header: the addresses you open the WebUI with. `127.0.0.1`, `localhost`, `::1` and a specific `WGPROXY_LISTEN_HOST` are always accepted. |
+| `WGPROXY_WEBUI_USERNAME` | `admin` | WebUI user name, used with `WGPROXY_WEBUI_PASSWORD`. No `:` or spaces. |
+| `WGPROXY_WEBUI_PASSWORD` | *(empty)* | WebUI password, 8–256 characters. When set, every page and API call needs this login and **Settings → WebUI password** is locked. Empty: no login, unless a password is set on the Settings page. |
 | `PUID` / `PGID` | `1000` | User and group that own `./data` and run the app and sing-box. |
 | `WGPROXY_LOG_LEVEL` | `info` | Application log level. |
-| `WGPROXY_ALLOWED_HOSTS` | *(empty)* | Extra host names accepted in the `Host` header, e.g. for an SSH-tunnel alias. |
 | `WGPROXY_DATA_DIR` | `/data` | Data directory inside the container. |
 | `WGPROXY_SING_BOX` | `/usr/local/bin/sing-box` | Engine binary. |
+
+An invalid value stops the container with `configuration error: …` in `docker compose logs`.
 
 ### Settings (WebUI → Settings)
 
@@ -258,6 +308,7 @@ Set these in `docker-compose.yml` or in a `.env` file next to it.
 | Upstream host / port | `127.0.0.1` / `2080` | Empty host = direct mode. A host name is resolved with the system resolver. |
 | Upstream username / password | empty | Optional SOCKS5 credentials. |
 | Proxy username / password | `wgproxy` / random | Required by every local proxy. |
+| Public host/IP for export | empty | Host in exported URLs. `WGPROXY_PUBLIC_HOST` overrides it. |
 | Port range | `20000`–`20999` | Used for new assignments only. |
 | Bootstrap DNS | `1.1.1.1`, UDP | Resolves endpoint host names, through the upstream. Switch to TCP if the upstream's UDP is unreliable. |
 | Tunnel DNS fallback | `1.1.1.1` | Used inside tunnels whose `.conf` has no `DNS =`. |
@@ -289,15 +340,23 @@ To back up, copy `./data` while the container is stopped, or download every impo
 
 ## Security notes
 
-- Every listener binds `127.0.0.1`.
+- Every listener binds `WGPROXY_LISTEN_HOST`, which is `127.0.0.1` unless you change it.
 - **WebUI**: a `Host` header allowlist blocks DNS-rebinding attacks. State-changing requests must carry
-  `X-Requested-With: wgproxy` and a same-origin `Origin` header, which other websites cannot produce. A
-  strict Content-Security-Policy applies.
-- **Optional WebUI password**: it is stored as an scrypt hash, and sessions use an HttpOnly,
-  SameSite=Strict cookie. Changing the password signs every session out. Scripts can use HTTP Basic auth
-  with the same password.
-- **Proxies**: they require the proxy credentials, but any local user who knows them can use the
-  proxies. Treat `./data` as a secret.
+  `X-Requested-With: wgproxy` and a same-origin `Origin` header, which other websites cannot produce: a
+  cross-site page cannot add the custom header without a CORS preflight, which is never granted. This
+  CSRF check also covers the login form. A strict Content-Security-Policy applies.
+- **WebUI login** (`WGPROXY_WEBUI_USERNAME`/`WGPROXY_WEBUI_PASSWORD`, or the optional password from
+  **Settings**): every page and API endpoint requires it, except the login page, static assets and
+  `/healthz` (used by the container healthcheck; it only reports the engine state). Passwords are kept as
+  scrypt hashes: the environment password is hashed at start-up and never compared in plain text, and
+  user names and hashes are compared in constant time. Sessions use an HMAC-signed, HttpOnly,
+  SameSite=Strict cookie; changing the password or user name signs every session out. Scripts can use
+  HTTP Basic auth with the same login. Failed logins, through the form or Basic auth, are limited to 5 per
+  minute per client address (per /64 for IPv6). While many logins fail, failed attempts also answer more
+  slowly; correct logins are never delayed.
+- **Proxies**: they require the proxy credentials, but anyone who can reach a proxy port and knows them
+  can use the proxies, from the internet too when `WGPROXY_LISTEN_HOST` is `0.0.0.0`. Treat `./data` as a
+  secret.
 - **Container**: it runs as `PUID:PGID` with no capabilities, `no-new-privileges` and a read-only root
   filesystem.
 
@@ -305,7 +364,14 @@ To back up, copy `./data` while the container is stopped, or download every impo
 
 **The WebUI does not open.** Check `docker compose ps` and `docker compose logs`. If port 8080 is taken,
 set `WGPROXY_WEBUI_PORT=8081` (for example in `.env`) and run `docker compose up -d`. Docker Desktop is
-not supported (see Quick start).
+not supported (see Quick start). From another machine, the WebUI is only reachable with
+`WGPROXY_LISTEN_HOST` set (see [VPS deployment](#vps-deployment)).
+
+**"Invalid Host header".** The address you opened the WebUI with is not allowlisted. Add it to
+`WGPROXY_ALLOWED_HOSTS` (comma-separated) and run `docker compose up -d`.
+
+**"Too many failed login attempts".** Five logins failed from your address within a minute. Wait for the
+time shown, then try again.
 
 **Banner: "Waiting for the upstream proxy …".** The outer VPN client is not listening on the configured
 host and port. Start it, fix **Settings → Upstream proxy**, or clear the host for direct mode.
@@ -326,7 +392,8 @@ which is the compose default. If you run it with `--user`, run `sudo chown -R 10
 `PUID`/`PGID`.
 
 **Forgot the WebUI password.**
-`docker compose exec wireguard-to-proxy python -m wgproxy reset-ui-password`.
+`docker compose exec wireguard-to-proxy python -m wgproxy reset-ui-password` removes the Settings-page
+password. A `WGPROXY_WEBUI_PASSWORD` login is changed in `.env` (then `docker compose up -d`).
 
 **"N log line(s) … suppressed".** Engine output is rate limited per process (30 lines/s). It mostly
 happens while the upstream is down, when every tunnel logs a reconnect error each second.
@@ -357,6 +424,8 @@ The tests cover:
 - the generated sing-box configuration: route rules, detour wiring, DNS and IP families;
 - the port manager and batch assignment, and the importer;
 - the API: auth, CSRF and Host checks, import and export;
+- the `WGPROXY_*` environment variables, the WebUI login (sessions, CSRF, rate limiting) and the host
+  written into exports;
 - the engine supervisor, against real subprocesses of a fake `sing-box`: staggered start, SIGTERM
   shutdown, port repair, quarantine, waiting for the upstream and crash restarts.
 
@@ -374,7 +443,8 @@ wgproxy/
 ├── importer.py    uploads, zip archives, duplicate detection
 ├── db.py          SQLite persistence
 ├── settings.py    validated settings
-├── security.py    WebUI auth, Host/CSRF checks, security headers
+├── security.py    WebUI auth, Host/CSRF checks, rate limiting, security headers
+├── hosts.py       listen, connect and export addresses
 ├── api.py         JSON API
 ├── pages.py       HTML pages
 ├── templates/     Jinja2 page shells

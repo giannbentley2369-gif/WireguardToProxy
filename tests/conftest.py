@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import random
 import shlex
@@ -9,8 +10,14 @@ import sys
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
+from wgproxy.app import create_app
+from wgproxy.config import AppConfig
 
 FAKE_SING_BOX = Path(__file__).parent / "fake_sing_box.py"
+HEADERS = {"X-Requested-With": "wgproxy"}
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def make_key() -> str:
@@ -70,3 +77,27 @@ def fake_sing_box(tmp_path: Path) -> Path:
     )
     wrapper.chmod(0o755)
     return wrapper
+
+
+@pytest.fixture
+def make_client(tmp_path: Path, monkeypatch):
+    """Factory for API test clients (engine not started). Keyword arguments override AppConfig
+    fields; every client shares one data directory, like restarts of the same install."""
+    with contextlib.ExitStack() as stack:
+
+        def factory(*, client: tuple[str, int] = ("testclient", 50000), **overrides) -> TestClient:
+            values = {
+                "data_dir": tmp_path / "data",
+                "sing_box": str(tmp_path / "missing-sing-box"),  # validation is skipped without a binary
+                "webui_port": 18080,
+                "log_level": "INFO",
+                "allowed_hosts": LOOPBACK_HOSTS,
+            }
+            cfg = AppConfig(**(values | overrides))
+            monkeypatch.setenv("WGPROXY_DATA_DIR", str(cfg.data_dir))
+            app = create_app(cfg, background=False)
+            return stack.enter_context(
+                TestClient(app, base_url="http://127.0.0.1:18080", headers=HEADERS, client=client)
+            )
+
+        yield factory

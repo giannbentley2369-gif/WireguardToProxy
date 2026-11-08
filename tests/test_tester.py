@@ -21,8 +21,14 @@ def test_extract_ip(body, expected):
 
 
 def test_proxy_url_escapes_credentials():
-    assert proxy_url("socks5", "user", "p@ss:w/rd", 20000) == "socks5://user:p%40ss%3Aw%2Frd@127.0.0.1:20000"
-    assert proxy_url("http", "u", "p", 1) == "http://u:p@127.0.0.1:1"
+    assert proxy_url("socks5", "user", "p@ss:w/rd", "127.0.0.1", 20000) == "socks5://user:p%40ss%3Aw%2Frd@127.0.0.1:20000"
+    assert proxy_url("http", "u", "p", "127.0.0.1", 1) == "http://u:p@127.0.0.1:1"
+
+
+def test_proxy_url_uses_the_given_host():
+    assert proxy_url("socks5", "u", "p", "203.0.113.10", 2) == "socks5://u:p@203.0.113.10:2"
+    assert proxy_url("socks5", "u", "p", "vps.example.com", 3) == "socks5://u:p@vps.example.com:3"
+    assert proxy_url("http", "u", "p", "2001:db8::1", 4) == "http://u:p@[2001:db8::1]:4"
 
 
 def test_failures_are_explained():

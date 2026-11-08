@@ -10,10 +10,36 @@ function fill(settings) {
     if (input.type === "checkbox") input.checked = Boolean(settings[input.name]);
     else input.value = settings[input.name] ?? "";
   }
-  $("ui-password-status").textContent = settings.ui_password_set
-    ? "A password protects the WebUI. HTTP Basic auth with the same password works for scripts."
-    : "No password set: anyone who can reach 127.0.0.1 on this machine can use the WebUI. Set one if the machine has other users.";
-  $("ui-password-disable").hidden = !settings.ui_password_set;
+  form.elements.public_host.disabled = Boolean(settings.public_host_env);
+  $("public-host-hint").textContent = settings.public_host_env
+    ? `Set by WGPROXY_PUBLIC_HOST (${settings.public_host_env}), which overrides this field.`
+    : `Exports currently use ${settings.export_host}.`;
+  fillUiPassword(settings);
+}
+
+function isLoopback(host) {
+  return host === "::1" || host.startsWith("127.");
+}
+
+function fillUiPassword(settings) {
+  const fromEnv = Boolean(settings.ui_password_env);
+  let status;
+  if (fromEnv) {
+    status =
+      `The WebUI login (user "${settings.webui_username}") is set by WGPROXY_WEBUI_USERNAME and WGPROXY_WEBUI_PASSWORD. ` +
+      "Change them in .env or docker-compose.yml and recreate the container. Scripts can use HTTP Basic auth with the same login.";
+  } else if (settings.ui_password_set) {
+    status = "A password protects the WebUI. HTTP Basic auth with the same password works for scripts.";
+  } else if (isLoopback(settings.listen_host)) {
+    status = `No password set: anyone who can reach ${settings.listen_host} on this machine can use the WebUI. Set one if the machine has other users.`;
+  } else {
+    status =
+      `No password set, and the WebUI listens on ${settings.listen_host}: anyone who can reach port ${settings.webui_port} ` +
+      "of this machine can use it. Set WGPROXY_WEBUI_PASSWORD, or a password here.";
+  }
+  $("ui-password-status").textContent = status;
+  $("ui-password-form").hidden = fromEnv;
+  $("ui-password-disable").hidden = fromEnv || !settings.ui_password_set;
 }
 
 function collectChanges() {
@@ -43,9 +69,8 @@ form.addEventListener("submit", async (event) => {
   }
   try {
     const result = await api("PUT", "/api/settings", changes);
-    loaded = { ...loaded, ...result.settings };
-    fill(loaded);
     toast(`Saved: ${result.changed.join(", ") || "no effective change"}`, "ok");
+    await load(); // refreshes derived values such as the export host
   } catch (error) {
     toast(error.message, "error", 9000);
   }

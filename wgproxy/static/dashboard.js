@@ -24,9 +24,15 @@ function credentials() {
   return state.status ? state.status.credentials : { username: "USER", password: "PASS" };
 }
 
+// Host for copied URLs, resolved by the server like exports (never a wildcard bind address).
+function exportHost() {
+  const host = state.status ? state.status.export_host : "127.0.0.1";
+  return host.includes(":") ? `[${host}]` : host;
+}
+
 function proxyUrl(proxy, scheme = "socks5") {
   const { username, password } = credentials();
-  return `${scheme}://${encodeURIComponent(username)}:${encodeURIComponent(password)}@127.0.0.1:${proxy.port}`;
+  return `${scheme}://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${exportHost()}:${proxy.port}`;
 }
 
 function matchesFilters(proxy) {
@@ -156,7 +162,7 @@ function renderCredentials() {
   $("cred-reveal").textContent = state.revealPassword ? "Hide" : "Show";
   const port = state.proxies.length ? state.proxies[0].port : "PORT";
   const shownPassword = state.revealPassword ? encodeURIComponent(password) : "PASS";
-  $("cred-example").textContent = `socks5://${encodeURIComponent(username)}:${shownPassword}@127.0.0.1:${port}`;
+  $("cred-example").textContent = `socks5://${encodeURIComponent(username)}:${shownPassword}@${exportHost()}:${port}`;
 }
 
 function renderProgress() {

@@ -29,10 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from . import SUPPORTED_SING_BOX_SERIES
-from .config import LISTEN_HOST, AppConfig
+from .config import AppConfig
 from .db import Database, ProxyRow, utcnow_iso
 from .logs import LogHub
-from .ports import NoFreePortError, PortAllocator, assign_shards, repair_ports, reserved_ports
+from .ports import NoFreePortError, PortAllocator, assign_shards, port_probe, repair_ports, reserved_ports
 from .settings import Settings, SettingsStore
 from .singbox import EngineSettings, Tunnel, UpstreamProxy, build_config, config_hash, render, tag_to_name
 from .upstream import resolve_host
@@ -106,9 +106,9 @@ def _fatal_line(output: str) -> str | None:
     return lines[-1] if lines else None
 
 
-async def _accepts_connections(port: int) -> bool:
+async def _accepts_connections(host: str, port: int) -> bool:
     try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(LISTEN_HOST, port), 0.5)
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), 0.5)
     except (OSError, asyncio.TimeoutError):
         return False
     writer.close()
@@ -278,6 +278,7 @@ class Engine:
             default_mtu=settings.default_mtu,
             default_keepalive=settings.default_keepalive,
             log_level=settings.log_level,
+            listen_host=self.cfg.listen_host,
         )
 
     # -- main loop ------------------------------------------------------------------------
@@ -539,7 +540,7 @@ class Engine:
         pending = set(ports)
         while pending and loop.time() < deadline and not waiter.done():
             for port in sorted(pending):
-                if await _accepts_connections(port):
+                if await _accepts_connections(self.cfg.connect_host, port):
                     pending.discard(port)
             if pending:
                 await asyncio.wait({waiter}, timeout=0.1)
@@ -673,7 +674,9 @@ class Engine:
     def _allocator(self) -> PortAllocator:
         settings = self.store.load()
         reserved = reserved_ports(self.cfg.webui_port, settings.upstream_host, settings.upstream_port)
-        return PortAllocator(settings.port_range_start, settings.port_range_end, reserved)
+        return PortAllocator(
+            settings.port_range_start, settings.port_range_end, reserved, probe=port_probe(self.cfg.listen_host)
+        )
 
     def _repair_ports(self, plan: ShardPlan) -> bool:
         """Move proxies of ``plan`` whose port cannot be bound. True when anything changed."""

@@ -13,11 +13,11 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from . import __version__
-from .config import LISTEN_HOST
+from .config import MIN_PASSWORD_LENGTH
 from .db import ProxyRow
 from .importer import MAX_UPLOAD_BYTES, Candidate, Outcome, UploadError, candidates_from_upload, sanitize_name
-from .ports import PortAllocator, PortValidationError, reserved_ports
-from .security import MIN_PASSWORD_LENGTH, SESSION_COOKIE
+from .ports import PortAllocator, PortValidationError, port_probe, reserved_ports
+from .security import SESSION_COOKIE, LoginThrottled
 from .services import Services
 from .settings import ENGINE_KEYS, generate_password
 from .tester import proxy_url
@@ -89,14 +89,15 @@ def _validation_message(exc: ValidationError) -> str:
 
 
 @router.get("/status")
-async def get_status(svc: Svc) -> dict[str, Any]:
+async def get_status(svc: Svc, request: Request) -> dict[str, Any]:
     settings = svc.store.load()
     rows = svc.db.list_proxies()
     states = svc.engine.proxy_states()
     views = [proxy_view(row, states.get(row.id)) for row in rows]
     return {
         "version": __version__,
-        "listen_host": LISTEN_HOST,
+        "listen_host": svc.cfg.listen_host,
+        "export_host": svc.export_host(request.headers.get("host", "")),
         "auth_enabled": svc.auth.enabled(),
         "engine": svc.engine.snapshot(),
         "upstream": svc.upstream.snapshot() | {"configured": settings.upstream_enabled},
@@ -194,6 +195,7 @@ async def update_proxy(proxy_id: int, body: ProxyPatch, svc: Svc) -> dict[str, A
             settings.port_range_start,
             settings.port_range_end,
             reserved_ports(svc.cfg.webui_port, settings.upstream_host, settings.upstream_port),
+            probe=port_probe(svc.cfg.listen_host),
         )
         taken = (svc.db.used_ports() | svc.engine.running_ports()) - {row.port}
         try:
@@ -301,6 +303,7 @@ async def current_test(svc: Svc) -> dict[str, Any] | None:
 @router.get("/export")
 async def export_proxies(
     svc: Svc,
+    request: Request,
     scheme: Literal["socks5", "http"] = "socks5",
     enabled_only: bool = True,
     status: Literal["any", "ok"] = "any",
@@ -308,8 +311,9 @@ async def export_proxies(
     ids: str = "",
     download: bool = True,
 ) -> PlainTextResponse:
-    """proxies.txt: one ``scheme://USER:PASS@127.0.0.1:PORT`` line per proxy."""
+    """proxies.txt: one ``scheme://USER:PASS@HOST:PORT`` line per proxy (HOST: see Services.export_host)."""
     settings = svc.store.load()
+    host = svc.export_host(request.headers.get("host", ""))
     rows = svc.db.list_proxies()
     if enabled_only:
         rows = [row for row in rows if row.enabled]
@@ -325,7 +329,7 @@ async def export_proxies(
     wanted_ids = {int(item) for item in ids.split(",") if item.strip().isdigit()}
     if wanted_ids:
         rows = [row for row in rows if row.id in wanted_ids]
-    lines = [proxy_url(scheme, settings.proxy_username, settings.proxy_password, row.port) for row in rows]
+    lines = [proxy_url(scheme, settings.proxy_username, settings.proxy_password, host, row.port) for row in rows]
     headers = {"Content-Disposition": 'attachment; filename="proxies.txt"'} if download else {}
     return PlainTextResponse("\n".join(lines) + ("\n" if lines else ""), headers=headers)
 
@@ -392,10 +396,15 @@ async def stream_logs(request: Request, svc: Svc) -> StreamingResponse:
 
 
 @router.get("/settings")
-async def get_settings(svc: Svc) -> dict[str, Any]:
+async def get_settings(svc: Svc, request: Request) -> dict[str, Any]:
     return svc.store.load().model_dump() | {
         "ui_password_set": svc.auth.enabled(),
+        "ui_password_env": svc.auth.managed_by_env,
+        "webui_username": svc.auth.username if svc.auth.managed_by_env else "",
         "webui_port": svc.cfg.webui_port,
+        "listen_host": svc.cfg.listen_host,
+        "public_host_env": svc.cfg.public_host,
+        "export_host": svc.export_host(request.headers.get("host", "")),
     }
 
 
@@ -420,6 +429,10 @@ class UiPasswordRequest(BaseModel):
 
 @router.post("/settings/ui-password")
 async def set_ui_password(body: UiPasswordRequest, svc: Svc, response: Response) -> dict[str, Any]:
+    if svc.auth.managed_by_env:
+        raise HTTPException(
+            status_code=409, detail="The WebUI login is set by WGPROXY_WEBUI_PASSWORD; change it there and restart"
+        )
     if body.password and len(body.password) < MIN_PASSWORD_LENGTH:
         raise HTTPException(status_code=422, detail=f"Use at least {MIN_PASSWORD_LENGTH} characters")
     await asyncio.to_thread(svc.auth.set_password, body.password)
@@ -448,19 +461,24 @@ async def test_upstream(svc: Svc) -> dict[str, Any]:
 
 
 class LoginRequest(BaseModel):
+    username: str = Field("", max_length=256)  # only checked for the WGPROXY_WEBUI_* login
     password: str = Field(..., max_length=256)
 
 
 @router.post("/auth/login")
-async def login(body: LoginRequest, svc: Svc, response: Response) -> dict[str, Any]:
-    delay = svc.auth.failure_delay()
-    if delay:
-        await asyncio.sleep(delay)
+async def login(body: LoginRequest, request: Request, svc: Svc, response: Response) -> dict[str, Any]:
     if not svc.auth.enabled():
         return {"ok": True}
-    if not await asyncio.to_thread(svc.auth.check_password, body.password):
-        svc.auth.record_failure()
-        raise HTTPException(status_code=401, detail="Wrong password")
+    client = request.client.host if request.client else None
+    try:
+        ok = await svc.auth.login(client, body.username, body.password)
+    except LoginThrottled as exc:
+        raise HTTPException(
+            status_code=429, detail=exc.detail, headers={"Retry-After": str(exc.retry_after)}
+        ) from None
+    if not ok:
+        detail = "Wrong user name or password" if svc.auth.managed_by_env else "Wrong password"
+        raise HTTPException(status_code=401, detail=detail)
     svc.auth.set_cookie(response)
     return {"ok": True}
 

@@ -176,6 +176,14 @@ def test_inbounds_are_authenticated_loopback_mixed_listeners(tunnels):
     assert listen_values and set(listen_values) == {"127.0.0.1"}
 
 
+def test_inbounds_listen_on_the_configured_host(tunnels):
+    config = build_config(tunnels, settings(listen_host="0.0.0.0"))
+    assert {inbound["listen"] for inbound in config["inbounds"]} == {"0.0.0.0"}
+    assert all(inbound["users"] == [{"username": "user", "password": "secret"}] for inbound in config["inbounds"])
+    # A different listen host is a different configuration, so running shards restart.
+    assert config_hash(config) != config_hash(build_config(tunnels, settings()))
+
+
 def test_mtu_and_keepalive_defaults():
     items = [
         tunnel("plain", 1),
